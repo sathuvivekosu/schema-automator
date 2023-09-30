@@ -12,8 +12,6 @@ clean:
 	rm -rf target/availabilities_g_s_strain_202112151116.yaml
 	rm -rf target/availabilities_g_s_strain_202112151116_org_meanings.yaml
 
-test:
-	$(RUN) pytest tests/
 
 schema_automator/metamodels/%.py: schema_automator/metamodels/%.yaml
 	$(RUN) gen-python $< > $@.tmp && mv $@.tmp $@

@@ -68,6 +68,7 @@ class OwlImportEngine(ImportEngine):
         slot_isamap = defaultdict(set)
         slot_usage_map = defaultdict(dict)
         single_valued_slots = set()
+        self.slot_info("is_a", "required", True);
         for a in ontology.axioms:
             logging.debug(f'Axiom: {a}')
             if isinstance(a, SubClassOf):
@@ -224,25 +225,64 @@ class OwlImportEngine(ImportEngine):
                 sn = self.iri_to_name(p)
                 rc = a.dataRange
                 if isinstance(rc, Datatype):
-                    logging.error('TODO')
-                    #self.slot_info(sn, 'range', self.iri_to_name(rc))
+                    #logging.error('TODO')
+                    self.slot_info(sn, 'range', self.iri_to_name(rc))
 
             if isinstance(a, AnnotationPropertyRange):
                 self.slot_info(self.iri_to_name(a.property),
                                'range', self.iri_to_name(a.range))
-
 
             if isinstance(a, Declaration):
                 e = a.v
                 uri_as_curie = str(e.v)
                 if uri_as_curie.startswith(':'):
                     uri_as_curie = f'{name}{uri_as_curie}'
-                if type(e) == Class:
-                    cn = self.iri_to_name(e.v)
-                    self.class_info(cn, 'class_uri', uri_as_curie)
-                if type(e) in [ObjectProperty, DataProperty, AnnotationProperty]:
-                    cn = self.iri_to_name(e.v)
-                    self.slot_info(cn, 'slot_uri', uri_as_curie)
+                # if type(e) == Class:
+                #     cn = self.iri_to_name(e.v)
+                #     self.class_info(cn, 'class_uri', uri_as_curie)
+                # if type(e) in [ObjectProperty, DataProperty, AnnotationProperty]:
+                #     cn = self.iri_to_name(e.v)
+                #     self.slot_info(cn, 'slot_uri', uri_as_curie)
+            if isinstance(a, ClassAssertion):
+                #logging.error(f'Class found : {a}')
+                i = a.individual.v
+                if isinstance(i, NamedIndividual):
+                    cn = self.iri_to_name(i.v)
+                    c = self.iri_to_name(a.expr.v)
+                    self.class_info(cn, 'is_a', c)
+            if isinstance(a, ObjectPropertyAssertion):
+                #logging.error(f'Object found : {a}')
+                s = a.sourceIndividual.v
+                o = a.targetIndividual.v
+                if isinstance(s, NamedIndividual) and isinstance(o, NamedIndividual):
+                    sn = self.iri_to_name(s.v)
+                    on = self.iri_to_name(o.v)
+                    p = self.iri_to_name(a.expr.v)
+                    if sn in classes:
+                    
+                        self.insert_slot_usage('classes', sn, p, 'range', on)
+                        #self.class_info(sn, 'slots_usage', slot_usage, True)
+                        #self.slot_usage_info(on, p, sn)
+                    else:
+                        self.slot_info(sn, 'range', on)
+            if isinstance(a, DataPropertyAssertion):
+                #logging.error(f'Data found : {a}')
+                s = a.sourceIndividual.v
+                o = a.targetValue.v
+                if isinstance(s, NamedIndividual) and isinstance(o, Literal):
+                    sn = self.iri_to_name(s.v)
+                    if isinstance(o, TypedLiteral):
+                        on = str(o.literal)
+                    else:
+                        on = o
+                    p = self.iri_to_name(a.expr.v)
+                    if sn in classes:
+                    
+                        self.insert_slot_usage('classes', sn, p, 'equals_string', on)
+                        #self.class_info(sn, 'slots_usage', p, True)
+                    else:
+                        self.slot_info(sn, 'range', on)
+            
 
 
         for c, parents in isamap.items():
@@ -278,11 +318,19 @@ class OwlImportEngine(ImportEngine):
                         t = 'slots'
                     else:
                         logging.error(f'{sub} is not known')
+                        #logging.error(f'{sub} {val}')
                     if t is not None:
                         if strp == 'rdfs:comment':
                             self.element_info(t, sub, 'comments', val, multivalued=True)
+                        elif strp == 'rdfs:label':
+                            self.element_info(t, sub, 'title', val, multivalued=False) 
+                        elif strp == 'owl:sameAs':
+                            self.element_info(t, sub, 'aliases', val, multivalued=True)   
                         elif strp == ':definition':
                             self.element_info(t, sub, 'description', val, multivalued=False)
+                        elif strp == ':usage_example': 
+                           # logging.error(f'Found usage example: {sub} {val}')
+                            self.element_info(t, sub, 'notes', val, multivalued=True)    
                         elif strp == 'schema:rangeIncludes':
                             range_cn = self.iri_to_name(val)
                             logging.error(f'UNTESTED RANGE: schema.org {sub} {val} // {domain_cn}')
@@ -324,6 +372,24 @@ class OwlImportEngine(ImportEngine):
                     c['slots'].append(identifier)
         schema = SchemaDefinition(**schema_dict)
         return schema
+
+    def insert_slot_usage(self, typeOfObject: str, objectName: str, slotName: str, propName: str,  v: Any):
+        if objectName not in self.schema[typeOfObject]:
+            self.schema[typeOfObject][objectName] = {}
+        c = self.schema[typeOfObject][objectName]
+
+        if "slot_usage" not in c:
+            c["slot_usage"] = {}
+        if slotName not in c["slot_usage"]:
+            c["slot_usage"][slotName] = {}
+        
+        if propName not in c["slot_usage"][slotName]:
+            c["slot_usage"][slotName][propName] = v
+        elif propName in c["slot_usage"][slotName] and isinstance(c["slot_usage"][slotName][propName], list):
+            c["slot_usage"][slotName][propName].append(v)
+        else:
+            c["slot_usage"][slotName][propName] = [c["slot_usage"][slotName][propName], v]    
+
 
     def class_info(self, *args, **kwargs):
         self.element_info('classes', *args, **kwargs)
