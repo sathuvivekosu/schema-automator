@@ -68,7 +68,7 @@ class OwlImportEngine(ImportEngine):
         slot_isamap = defaultdict(set)
         slot_usage_map = defaultdict(dict)
         single_valued_slots = set()
-        self.slot_info("is_a", "required", True);
+        self.slot_info("is_a", "required", False);
         for a in ontology.axioms:
             logging.debug(f'Axiom: {a}')
             if isinstance(a, SubClassOf):
@@ -78,18 +78,18 @@ class OwlImportEngine(ImportEngine):
                             slot_usage_map[child][p] = {}
                         slot_usage_map[child][p][k] = v
                     def set_cardinality(p, min_card, max_card):
-                        if max_card is not None:
-                            if max_card == 1:
-                                set_slot_usage(p, 'multivalued', False)
-                            elif max_card > 1:
-                                set_slot_usage(p, 'multivalued', True)
+                        # if max_card is not None:
+                        #     if max_card == 1:
+                        #         set_slot_usage(p, 'multivalued', False)
+                        #     elif max_card > 1:
+                        #         set_slot_usage(p, 'multivalued', True)
                         if min_card is not None:
                             if min_card == 1:
                                 set_slot_usage(p, 'required', True)
                             elif min_card == 0:
                                 set_slot_usage(p, 'required', False)
-                            else:
-                                set_slot_usage(p, 'multivalued', True)
+                            # else:
+                            #     set_slot_usage(p, 'multivalued', True)
                     child = self.iri_to_name(a.subClassExpression)
                     if isinstance(a.superClassExpression, Class):
                         parent = self.iri_to_name(a.superClassExpression)
@@ -173,7 +173,8 @@ class OwlImportEngine(ImportEngine):
                     sup = a.superObjectPropertyExpression.v
                     if isinstance(sup, ObjectPropertyExpression) and isinstance(sup.v, ObjectProperty):
                         parent = self.iri_to_name(sup.v)
-                        slot_isamap[child].add(parent)
+                        if(parent != "owl:topObjectProperty"):
+                            slot_isamap[child].add(parent)
                     else:
                         logging.error(f"cannot handle anon object parent properties for {a}")
                 else:
@@ -185,7 +186,8 @@ class OwlImportEngine(ImportEngine):
                     sup = a.superDataPropertyExpression.v
                     if isinstance(sup, DataProperty):
                         parent = self.iri_to_name(sup)
-                        slot_isamap[child].add(parent)
+                        if(parent != "owl:topDataProperty"):
+                            slot_isamap[child].add(parent)
                     else:
                         logging.error(f"cannot handle anon data parent properties for {a}")
                 else:
@@ -203,6 +205,7 @@ class OwlImportEngine(ImportEngine):
                     p = a.dataPropertyExpression.v
                 sn = self.iri_to_name(p)
                 dc = a.classExpression
+                c = self.iri_to_name(dc)
                 if isinstance(dc, Class):
                     c = self.iri_to_name(dc)
                     self.class_info(c, 'slots', sn, True)
@@ -212,12 +215,14 @@ class OwlImportEngine(ImportEngine):
                         if isinstance(x, Class):
                             c = self.iri_to_name(x)
                             self.class_info(c, 'slots', sn, True)
+                self.slot_info(sn, 'domain_of', c )
 
             if isinstance(a, ObjectPropertyRange):
                 p = a.objectPropertyExpression.v
                 sn = self.iri_to_name(p)
                 rc = a.classExpression
                 if isinstance(rc, Class):
+                    #self.add_range(sn, self.iri_to_name(rc))
                     self.slot_info(sn, 'range', self.iri_to_name(rc))
 
             if isinstance(a, DataPropertyRange):
@@ -237,12 +242,12 @@ class OwlImportEngine(ImportEngine):
                 uri_as_curie = str(e.v)
                 if uri_as_curie.startswith(':'):
                     uri_as_curie = f'{name}{uri_as_curie}'
-                # if type(e) == Class:
-                #     cn = self.iri_to_name(e.v)
-                #     self.class_info(cn, 'class_uri', uri_as_curie)
-                # if type(e) in [ObjectProperty, DataProperty, AnnotationProperty]:
-                #     cn = self.iri_to_name(e.v)
-                #     self.slot_info(cn, 'slot_uri', uri_as_curie)
+                if type(e) == Class:
+                    cn = self.iri_to_name(e.v)
+                    self.class_info(cn, 'class_uri', uri_as_curie)
+                if type(e) in [ObjectProperty, DataProperty, AnnotationProperty]:
+                    cn = self.iri_to_name(e.v)
+                    self.slot_info(cn, 'slot_uri', uri_as_curie)
             if isinstance(a, ClassAssertion):
                 #logging.error(f'Class found : {a}')
                 i = a.individual.v
@@ -312,6 +317,7 @@ class OwlImportEngine(ImportEngine):
                         val = val.v
                     else:
                         val = str(val)
+                    t = None
                     if sub in classes:
                         t = 'classes'
                     elif sub in slots:
@@ -323,14 +329,16 @@ class OwlImportEngine(ImportEngine):
                         if strp == 'rdfs:comment':
                             self.element_info(t, sub, 'comments', val, multivalued=True)
                         elif strp == 'rdfs:label':
+                            #print("converting rdfs:label to title for ", t, sub, val)
                             self.element_info(t, sub, 'title', val, multivalued=False) 
                         elif strp == 'owl:sameAs':
                             self.element_info(t, sub, 'aliases', val, multivalued=True)   
-                        elif strp == ':definition':
+                        elif strp == ':definition' or strp == "http://www.semanticweb.org/pooya/ontologies/2022/2/SAI-O#definition":
                             self.element_info(t, sub, 'description', val, multivalued=False)
-                        elif strp == ':usage_example': 
-                           # logging.error(f'Found usage example: {sub} {val}')
-                            self.element_info(t, sub, 'notes', val, multivalued=True)    
+                        elif strp == ':usage_example' or strp == "http://www.semanticweb.org/pooya/ontologies/2022/2/SAI-O#usage_example": 
+                            #logging.error(f'Found usage example: {sub} {val}')
+                            #self.element_info(t, sub, 'notes', val, multivalued=True)   
+                            self.element_info(t, sub, "examples", {"value":val}, multivalued=True)
                         elif strp == 'schema:rangeIncludes':
                             range_cn = self.iri_to_name(val)
                             logging.error(f'UNTESTED RANGE: schema.org {sub} {val} // {domain_cn}')
@@ -344,8 +352,9 @@ class OwlImportEngine(ImportEngine):
                                 self.schema['classes'][domain_cn]['slots'] = []
                             self.schema['classes'][domain_cn]['slots'].append(sub)
                         else:
-                            if self.include_unmapped_annotations:
-                                self.element_info(t, sub, 'comments', f'{p} = {val}', multivalued=True)
+                            logger.error("Found unknown element : ", strp)
+                            # if self.include_unmapped_annotations:
+                            #     self.element_info(t, sub, 'comments', f'{p} = {val}', multivalued=True)
         for cn, usage in slot_usage_map.items():
             schema_dict['classes'][cn]['slot_usage'] = usage
         for sn, s in schema_dict['slots'].items():
